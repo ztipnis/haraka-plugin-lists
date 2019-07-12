@@ -31,6 +31,7 @@
     "mocha": "*"
   },
   "dependencies": {
+    "address-rfc2821": "^1.1.3",
     "haraka-constants": "^1.0.5",
     "pg": "^7.11.0"
   }

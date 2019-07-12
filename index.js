@@ -1,5 +1,4 @@
 'use strict';
-const util      = this.haraka_require('util');
 const constants = require('haraka-constants');
 
 exports.register = function () {
@@ -10,6 +9,7 @@ exports.register = function () {
         plugin.register_hook('init_master','init_pool');
         plugin.register_hook('connect_init', 'init_client');
         plugin.register_hook('rcpt', 'validate_address');
+        plugin.register_hook('queue', 'load_recipients');
         plugin.register_hook('disconnect', 'close_client')
 
     }
@@ -28,13 +28,14 @@ exports.load_lists_ini = function () {
     });
 }
 
-exports.init_pool = function(){
+exports.init_pool = function(next, server){
     const plugin = this;
     const { Pool } = require('pg');
     plugin.db_pool_postgres = new Pool();
     plugin.db_pool_postgres.on('error', (err, client) =>{
         plugin.logcrit('Idle client encountered error ' + err)
     })
+    next()
 }
 
 exports.init_client = function(next, connection){
@@ -46,17 +47,20 @@ exports.init_client = function(next, connection){
             plugin.logcrit('Idle client encountered error ' + err.message)
         })
     }
-    pool.connect().then(client => {
-        connection.notes.pgresClient = client;
-        next();
-    }).catch(e =>{
-        connection.logerror("List plugin failed to create client");
-    })
+    if(plugin.db_pool_postgres){
+        plugin.db_pool_postgres.connect().then(client => {
+            connection.notes.pgresClient = client;
+            next();
+        }).catch(e =>{
+            connection.logerror("List plugin failed to create client");
+        })
+    }
 }
 
 exports.validate_address = function(next, connection, params){
     const plugin = this;
-    var recipient = params[0];
+    const util = require('util');
+    var recipient = params[0].user + "@" + params[0].host;
     connection.logdebug("Checking for list named " + util.inspect(recipient))
     this.lookup(connection.notes.pgresClient, recipient, (valid) => {
         if(valid){
@@ -78,15 +82,23 @@ exports.hook_data = function(next, connection){
 
 exports.load_recipients = function (next, connection){
     const plugin = this;
+    var Address = require('address-rfc2821').Address;
     if(connection.notes.islist == true){
         var recipients = connection.transaction.rcpt_to;
         connection.transaction.rcpt_to = [];
-        const rcpts = recipients.map(async rcpnt => {
-            var is_list = await lookup_async(connection.notes.pgresClient, rcpnt)
+        const rcpts = recipients.map(async (rcpnt) => {
+            plugin.logdebug(rcpnt);
+            var is_list = await plugin.lookup_async(connection.notes.pgresClient, rcpnt.user + "@" + rcpnt.host)
             if(!is_list){
-                connection.transaction.rcpt_to.push(rcpnt)
+                plugin.logdebug(rcpnt.user + "@" + rcpnt.host + " is not a list!")
+                return connection.transaction.rcpt_to.push(rcpnt)
             } else{
-                connection.transaction.rcpt_to.push(await plugin.list_recipients(connection.notes.pgresClient, rcpnt))
+                plugin.logdebug("Looking up list users...")
+                var rpnts = await plugin.list_recipients(connection.notes.pgresClient, rcpnt.user + "@" + rcpnt.host);
+                return rpnts.forEach(rpnt =>{
+                    var adr = new Address(rpnt);
+                    connection.transaction.rcpt_to.push(adr);
+                })
             }
         })
         Promise.all(rcpts).then(() => {
@@ -99,6 +111,27 @@ exports.close_client = function(next, connection){
     if(typeof connection.notes.pgresClient !== 'undefined' && connection.notes.pgresClient){
         connection.notes.pgresClient.release()
     }
+    next();
+}
+
+exports.list_recipients = function( client, address ){
+    const plugin = this;
+    return new Promise(function(resolve){
+        if(client){
+            client.query("SELECT list_users.users FROM lists RIGHT JOIN list_users ON lists.id=list_users.id WHERE lists.address = $1", [address], (err,result) => {
+                if(err){
+                    plugin.logerror("Lookup recipients for list "+ address + " failed. " + err)
+                    resolve([]);
+                }
+                if(result.rowCount <= 0){
+
+                    resolve([]);
+                }else{
+                    resolve(result.rows[0].users)
+                }
+            })
+        }
+    })
 }
 
 exports.lookup_async = function( client, address ){
@@ -107,12 +140,12 @@ exports.lookup_async = function( client, address ){
             client.query("SELECT * FROM lists WHERE address = $1", [address], (err, result) => {
                 if(err){
                     this.logerror("Lookup for list "+ address + " failed. " + err)
-                    resolve(callback(false));
+                    resolve(false);
                 }
-                resolve(callback(result.rows[0].exists));
+                resolve(result.rowCount > 0);
             })
         }else{
-            resolve(callback(false))
+            resolve(false)
         }
     })
 }
