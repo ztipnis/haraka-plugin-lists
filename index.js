@@ -86,6 +86,7 @@ exports.load_recipients = function (next, connection){
     var Address = require('address-rfc2821').Address;
     if(connection.notes.islist == true){
         var recipients = connection.transaction.rcpt_to;
+        plugin.logdebug(recipients);
         connection.transaction.rcpt_to = [];
         const rcpts = recipients.map(async (rcpnt) => {
             plugin.logdebug(rcpnt);
