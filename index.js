@@ -10,6 +10,7 @@ exports.register = function () {
         plugin.register_hook('connect_init', 'init_client');
         plugin.register_hook('rcpt', 'validate_address');
         plugin.register_hook('queue', 'load_recipients');
+        plugin.register_hook('queue', 'log_rcpt');
         plugin.register_hook('disconnect', 'close_client')
 
     }
@@ -97,6 +98,7 @@ exports.load_recipients = function (next, connection){
                 var rpnts = await plugin.list_recipients(connection.notes.pgresClient, rcpnt.user + "@" + rcpnt.host);
                 return rpnts.forEach(rpnt =>{
                     var adr = new Address(rpnt);
+                    plugin.logdebug(adr);
                     connection.transaction.rcpt_to.push(adr);
                 })
             }
@@ -105,6 +107,9 @@ exports.load_recipients = function (next, connection){
             next(constants.CONT);
         })
     }
+}
+exports.log_rcpt = function (next, connection){
+    this.logdebug(connection.transaction.rcpt_to);
 }
 
 exports.close_client = function(next, connection){
