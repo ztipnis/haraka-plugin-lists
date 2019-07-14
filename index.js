@@ -133,7 +133,7 @@ exports.list_recipients = function( client, address ){
     const plugin = this;
     return new Promise(function(resolve){
         if(client){
-            client.query("SELECT list_users.users FROM lists RIGHT JOIN list_users ON lists.id=list_users.id WHERE lists.address = $1", [address], (err,result) => {
+            client.query("SELECT A.email FROM \"public\".\"lists\" AS l RIGHT JOIN \"public\".\"listUsers\" AS A ON A.lid=l.id WHERE l.address=$1", [address], (err,result) => {
                 if(err){
                     plugin.logerror("Lookup recipients for list "+ address + " failed. " + err)
                     resolve([]);
@@ -142,7 +142,7 @@ exports.list_recipients = function( client, address ){
 
                     resolve([]);
                 }else{
-                    resolve(result.rows[0].users)
+                    resolve(result.rows.map((rw) => rw.email))
                 }
             })
         }
@@ -186,7 +186,7 @@ exports.queue_outbound = function(connection){
 exports.lookup_async = function( client, address ){
     return new Promise(function(resolve){
         if(client){
-            client.query("SELECT * FROM lists WHERE address = $1", [address], (err, result) => {
+            client.query("SELECT * FROM \"public\".\"lists\" WHERE address = $1", [address], (err, result) => {
                 if(err){
                     this.logerror("Lookup for list "+ address + " failed. " + err)
                     resolve(false);
