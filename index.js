@@ -10,7 +10,7 @@ exports.register = function () {
         plugin.register_hook('connect_init', 'init_client');
         plugin.register_hook('rcpt', 'validate_address');
         plugin.register_hook('queue', 'load_recipients');
-        plugin.register_hook('queue', 'log_rcpt');
+        //plugin.register_hook('queue', 'log_rcpt');
         plugin.register_hook('disconnect', 'close_client')
 
     }
@@ -41,7 +41,7 @@ exports.init_pool = function(next, server){
 
 exports.init_client = function(next, connection){
     const plugin = this;
-    if(!(typeof plugin.db_pool_postgres !== 'undefined' && db_pool_postgres)){
+    if(!(typeof plugin.db_pool_postgres !== 'undefined' && plugin.db_pool_postgres)){
         const { Pool } = require('pg');
         plugin.db_pool_postgres = new Pool();
         plugin.db_pool_postgres.on('error', (err, client) =>{
@@ -105,12 +105,19 @@ exports.load_recipients = function (next, connection){
             }
         })
         Promise.all(rcpts).then(() => {
-            next(constants.CONT);
+            if(plugin.queue_outbound(connection)){
+                next(constants.OK);
+            }else{
+                next(constants.CONT);
+            }
+            
         })
     }
 }
 exports.log_rcpt = function (next, connection){
+    this.logdebug("cont called")
     this.logdebug(connection.transaction.rcpt_to);
+    next();
 }
 
 exports.close_client = function(next, connection){
@@ -136,6 +143,40 @@ exports.list_recipients = function( client, address ){
                     resolve(result.rows[0].users)
                 }
             })
+        }
+    })
+}
+
+exports.queue_outbound = function(connection){
+    const plugin = this;
+    const outbound = plugin.haraka_require('outbound');
+    const rcpts = connection.transaction.rcpt_to;
+    plugin.logdebug(connection.transaction.mail_from)
+    const from = connection.transaction.mail_from
+    connection.transaction.message_stream.get_data((contents) => {
+        contents = contents.toString().replace(/\r/g, '');
+        //got contents
+        if(rcpts.map((address) =>{
+            //for each recipient send email
+            const to = address.toString();
+            plugin.logdebug("sending email to: " + to)
+            outbound.send_email(from, to, contents, (code, msg) => {
+                switch(code){
+                    case DENY: plugin.logerror("Sending mail failed: " + msg);
+                               return false;
+                               break;
+                    case OK:   plugin.loginfo("List email sent")
+                               return true;
+                               break;
+                    default:   plugin.logerror("Unrecognized return code from sending email: " + msg);
+                               return false;
+                               break;
+                }
+            });
+        }).every((ret) => ret)){
+            return true
+        }else{
+            return false
         }
     })
 }
