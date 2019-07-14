@@ -112,6 +112,8 @@ exports.load_recipients = function (next, connection){
             }
             
         })
+    }else{
+        next();
     }
 }
 exports.log_rcpt = function (next, connection){
