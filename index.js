@@ -118,9 +118,12 @@ exports.queue_list = function (next,connection) {
                     next(constants.DENYSOFT);
                 }
             })
+        }else{
+            next();
         }
     }catch (err){
         plugin.logerror("A message was temporarily denied because we were unable to connect to Postgres. Please fix the error, or any list email will be indefinitely denied: \n" + err.message)
+        next();
     }
 }
 
