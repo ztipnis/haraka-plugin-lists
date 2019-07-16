@@ -1,5 +1,6 @@
 'use strict';
 const constants = require('haraka-constants');
+const List = require("./list");
 
 exports.register = function () {
     const plugin = this;
@@ -8,9 +9,8 @@ exports.register = function () {
         plugin.loginfo("Plugin Lists Enabled",null)
         plugin.register_hook('init_master','init_pool');
         plugin.register_hook('connect_init', 'init_client');
-        plugin.register_hook('rcpt', 'validate_address');
-        plugin.register_hook('queue', 'load_recipients');
-        //plugin.register_hook('queue', 'log_rcpt');
+        plugin.register_hook('rcpt', 'validate_list_addresses');
+        plugin.register_hook('queue', 'queue_list');
         plugin.register_hook('disconnect', 'close_client')
 
     }
@@ -58,12 +58,13 @@ exports.init_client = function(next, connection){
     }
 }
 
-exports.validate_address = function(next, connection, params){
+exports.validate_list_addresses = function(next, connection, params){
     const plugin = this;
     const util = require('util');
     var recipient = params[0].user + "@" + params[0].host;
     connection.logdebug("Checking for list named " + util.inspect(recipient))
-    this.lookup(connection.notes.pgresClient, recipient, (valid) => {
+    var lst = new List(recipient);
+    lst.validate(connection.notes.pgresClient).then((valid) =>{
         if(valid){
             connection.logdebug("List named: '" + recipient +"' exists!")
             connection.notes.islist = true;
@@ -73,6 +74,9 @@ exports.validate_address = function(next, connection, params){
             connection.notes.islist = false;
             return next(constants.CONT);
         }
+    }).catch((err) =>{
+        plugin.logerror(err.message);
+        return next(constants.CONT);
     })
 }
 
@@ -81,46 +85,45 @@ exports.hook_data = function(next, connection){
     next();
 }
 
-exports.load_recipients = function (next, connection){
-    const plugin = this;
-    var Address = require('address-rfc2821').Address;
-    if(connection.notes.islist == true){
-        var recipients = connection.transaction.rcpt_to;
-        plugin.logdebug(recipients);
-        connection.transaction.rcpt_to = [];
-        const rcpts = recipients.map(async (rcpnt) => {
-            plugin.logdebug(rcpnt);
-            var is_list = await plugin.lookup_async(connection.notes.pgresClient, rcpnt.user + "@" + rcpnt.host)
-            if(!is_list){
-                plugin.logdebug(rcpnt.user + "@" + rcpnt.host + " is not a list!")
-                return connection.transaction.rcpt_to.push(rcpnt)
-            } else{
-                plugin.logdebug("Looking up list users...")
-                var rpnts = await plugin.list_recipients(connection.notes.pgresClient, rcpnt.user + "@" + rcpnt.host);
-                return rpnts.forEach(rpnt =>{
-                    var adr = new Address(rpnt);
-                    plugin.logdebug(adr);
-                    connection.transaction.rcpt_to.push(adr);
-                })
-            }
-        })
-        Promise.all(rcpts).then(() => {
-            if(plugin.queue_outbound(connection)){
-                next(constants.OK);
-            }else{
-                next(constants.CONT);
-            }
-            
-        })
-    }else{
-        next();
+
+exports.queue_list = function (next,connection) {
+    try{
+        const plugin = this;
+        var Address = require('address-rfc2821').Address;
+        if(connection.notes.islist){
+            const recipients = connection.transaction.rcpt_to;
+            connection.transaction.rcpt_to = [];
+            var rcpt_ret = recipients.map(async (recipient) => {
+                let lst = new List(recipient.user + "@" + recipient.host)
+                try{
+                    var islist = await lst.validate(connection.notes.pgresClient)
+                    if(islist){
+                        var listUsers = await lst.recipients(connection.notes.pgresClient)
+                        return listUsers.map((listUserEmail) => new Address(listUserEmail))
+                    }else{
+                        connection.transaction.rcpt_to.push(recipient)
+                        return [];
+                    }
+                }catch(err){
+                    plugin.logerror("Database Connection Failed " + err.message)
+                    throw next(constants.DENYSOFT);
+                }
+            }, this)
+            Promise.all(rcpt_ret).then(async (rcpt_to) => {
+                let list_queue = rcpt_to.flat();
+                if(await plugin.queue_outbound(connection, list_queue)){
+                    plugin.logdebug("Remaining Addresses: " + JSON.stringify(connection.transaction.rcpt_to));
+                    next(constants.CONT);
+                }else{
+                    next(constants.DENYSOFT);
+                }
+            })
+        }
+    }catch (err){
+        plugin.logerror("A message was temporarily denied because we were unable to connect to Postgres. Please fix the error, or any list email will be indefinitely denied: \n" + err.message)
     }
 }
-exports.log_rcpt = function (next, connection){
-    this.logdebug("cont called")
-    this.logdebug(connection.transaction.rcpt_to);
-    next();
-}
+
 
 exports.close_client = function(next, connection){
     if(typeof connection.notes.pgresClient !== 'undefined' && connection.notes.pgresClient){
@@ -129,76 +132,45 @@ exports.close_client = function(next, connection){
     next();
 }
 
-exports.list_recipients = function( client, address ){
-    const plugin = this;
-    return new Promise(function(resolve){
-        if(client){
-            client.query("SELECT A.email FROM \"public\".\"lists\" AS l RIGHT JOIN \"public\".\"listUsers\" AS A ON A.lid=l.id WHERE l.address=$1", [address], (err,result) => {
-                if(err){
-                    plugin.logerror("Lookup recipients for list "+ address + " failed. " + err)
-                    resolve([]);
-                }
-                if(result.rowCount <= 0){
 
-                    resolve([]);
-                }else{
-                    resolve(result.rows.map((rw) => rw.email))
-                }
-            })
-        }
-    })
-}
-
-exports.queue_outbound = function(connection){
+exports.queue_outbound = async function(connection, users){
     const plugin = this;
     const outbound = plugin.haraka_require('outbound');
-    const rcpts = connection.transaction.rcpt_to;
-    plugin.logdebug(connection.transaction.mail_from)
     const from = connection.transaction.mail_from
-    connection.transaction.message_stream.get_data((contents) => {
-        contents = contents.toString().replace(/\r/g, '');
-        //got contents
-        if(rcpts.map((address) =>{
-            //for each recipient send email
-            const to = address.toString();
-            plugin.logdebug("sending email to: " + to)
-            outbound.send_email(from, to, contents, (code, msg) => {
-                switch(code){
-                    case DENY: plugin.logerror("Sending mail failed: " + msg);
-                               return false;
-                               break;
-                    case OK:   plugin.loginfo("List email sent")
-                               return true;
-                               break;
-                    default:   plugin.logerror("Unrecognized return code from sending email: " + msg);
-                               return false;
-                               break;
-                }
-            });
-        }).every((ret) => ret)){
-            return true
-        }else{
-            return false
-        }
-    })
-}
-
-exports.lookup_async = function( client, address ){
-    return new Promise(function(resolve){
-        if(client){
-            client.query("SELECT * FROM \"public\".\"lists\" WHERE address = $1", [address], (err, result) => {
-                if(err){
-                    this.logerror("Lookup for list "+ address + " failed. " + err)
-                    resolve(false);
-                }
-                resolve(result.rowCount > 0);
+    var trans = Object.assign({}, connection.transaction);
+    return await new Promise((rslv) => {
+        trans.message_stream.get_data((contents) => {
+            contents = contents.toString().replace(/\r/g, '');
+            //got contents
+            let sent = users.map((address) =>{
+                //for each recipient send email
+                const to = address.toString();
+                plugin.logdebug("sending email to: " + to)
+                return new Promise((resolve) => {
+                    outbound.send_email(from, to, contents, (code, msg) => {
+                        switch(code){
+                            case DENY: plugin.logerror("Sending mail failed: " + msg);
+                                       resolve(false);
+                                       break;
+                            case OK:   plugin.loginfo("List email sent")
+                                       resolve(true);
+                                       break;
+                            default:   plugin.logerror("Unrecognized return code from sending email: " + msg);
+                                       resolve(false);
+                                       break;
+                        }
+                    });
+                })
             })
-        }else{
-            resolve(false)
-        }
+            
+            if(sent.every((ret) => ret)){
+                rslv(true)
+            }else{
+
+                rslv(false)
+            }
+        })
     })
 }
 
-exports.lookup = function(client, address, callback){
-    this.lookup_async(client, address).then(ret => callback(ret));
-}
+
