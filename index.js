@@ -71,14 +71,32 @@ exports.validate_list_addresses = function(next, connection, params){
             connection.notes.islist = true;
             return next(constants.OK);
         }else{
-            connection.logdebug("List does not exist");
-            connection.notes.islist = false;
-            return next(constants.CONT);
+            (new List(lst.unverp().email)).validate(connection.notes.pgresClient).then((unverpvalid) => {
+                if(unverpvalid){
+                    plugin.run_command(lst.unverp(),connection)
+                    return next(constants.DISCONNECT);
+                }else{
+                    connection.logdebug("List does not exist");
+                    connection.notes.islist = false;
+                    return next(constants.CONT);
+                }
+            })
+            
         }
     }).catch((err) =>{
         plugin.logerror(err.message);
         return next(constants.CONT);
     })
+}
+
+exports.run_command(vobj, email, connection){
+    const from = connection.transaction.mail_from;
+    switch(vobj.command){
+        case "unsub":
+            client.query('DELETE FROM "public"."listUsers" AS lU USING "public"."lists" AS l  WHERE lU.lid=l.id  AND l.address = $1  AND lU.email = $2;',[vobj.email, from])
+        case "sub":
+            plugin.logerror("Sorry subscribe not allowed")
+    }
 }
 
 exports.hook_data = function(next, connection){
@@ -146,15 +164,19 @@ exports.queue_outbound = async function(connection, users){
             let to = address.adr.toString()
             let list = address.list
             var trans = _.cloneDeep(connection.transaction);
+            let unsub = list.verp("unsub");
             trans.remove_header('List-Unsubscribe');
-            trans.add_header('List-Unsubscribe', list.verp("unsub"));
+            trans.add_header('List-Unsubscribe', unsub);
             trans.remove_header('List-ID');
             trans.add_header('List-ID', list.address.replace('@', '.'));
-            trans.set_banner("Email " + list.verp("unsub") + "to Unsubscribe", '<span><p><a href = mailto:"'+ list.verp("unsub") +'">Click here to unsubscribe</a></p></span>')
+            trans.set_banner("Email " + unsub + "to Unsubscribe", '<span><p><a href = mailto:"'+ unsub +'">Click here to unsubscribe</a></p></span>')
             plugin.logdebug("sending email to: " + to)
             return new Promise((resolve) => {
                 trans.message_stream.get_data((contents) => {
                     contents = contents.toString().replace(/\r/g, '');
+                    plugin.logdebug(contents);
+
+                    plugin.logdebug(JSON.stringify(list.unverp()))
                     outbound.send_email(from, to, contents, (code, msg) => {
                         switch(code){
                             case DENY: plugin.logerror("Sending mail failed: " + msg);

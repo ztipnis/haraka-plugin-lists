@@ -28,19 +28,21 @@ module.exports = function (address){
     }
 
     this.verp = function(command){
-    	let regex = /([\w\d]+)@([\w\d]+\.\w+)/
     	switch(command){
     		case "sub":
-    			return address.replace(regex, "$1%sub%@$2")
+    			return address.replace('@', '%sub%@')
     		case "unsub":
-    			return address.replace(regex, "$1%unsub%$2")
+    			return address.replace('@', '%unsub%@')
     		default:
-    			return address;
+    			return "none";
     	}
     }
     this.unverp = function(){
-    	let regex = /([\w\d]+)(%[\w]+%)*@([\w\d]+\.\w+)/
-    	return address.replace(regex, "$1@$3")
+    	let regex = /%.*%/
+    	return {
+    		command: address.match(/%(.*?)%/).pop(),
+    		email: address.replace(regex, "")
+    	}
     }
 
 
