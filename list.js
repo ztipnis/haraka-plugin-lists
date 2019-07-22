@@ -40,7 +40,7 @@ module.exports = function (address){
     this.unverp = function(){
     	let regex = /%.*%/
     	return {
-    		command: address.match(/%(.*?)%/).pop(),
+    		command: (address.match(/%(.*?)%/) || []).pop(),
     		email: address.replace(regex, "")
     	}
     }
