@@ -150,7 +150,7 @@ exports.queue_outbound = async function(connection, users){
             trans.add_header('List-Unsubscribe', list.verp("unsub"));
             trans.remove_header('List-ID');
             trans.add_header('List-ID', list.address.replace('@', '.'));
-            trans.set_banner("Email " + list.verp("unsub") + "to Unsubscribe", '<div><a href = mailto:"'+ list.verp("unsub") +'">Click here to unsubscribe</a></div>')
+            trans.set_banner("Email " + list.verp("unsub") + "to Unsubscribe", '<span><p><a href = mailto:"'+ list.verp("unsub") +'">Click here to unsubscribe</a></p></span>')
             plugin.logdebug("sending email to: " + to)
             return new Promise((resolve) => {
                 trans.message_stream.get_data((contents) => {
