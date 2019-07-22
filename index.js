@@ -89,7 +89,7 @@ exports.validate_list_addresses = function(next, connection, params){
     })
 }
 
-exports.run_command(vobj, email, connection){
+exports.run_command = function(vobj, email, connection){
     const from = connection.transaction.mail_from;
     switch(vobj.command){
         case "unsub":
