@@ -1,6 +1,7 @@
 'use strict';
 const constants = require('haraka-constants');
 const List = require("./list");
+const _ = require('lodash');
 
 exports.register = function () {
     const plugin = this;
@@ -99,7 +100,7 @@ exports.queue_list = function (next,connection) {
                     var islist = await lst.validate(connection.notes.pgresClient)
                     if(islist){
                         var listUsers = await lst.recipients(connection.notes.pgresClient)
-                        return listUsers.map((listUserEmail) => new Address(listUserEmail))
+                        return listUsers.map((listUserEmail) => ({adr: (new Address(listUserEmail)), list: lst}))
                     }else{
                         connection.transaction.rcpt_to.push(recipient)
                         return [];
@@ -123,7 +124,7 @@ exports.queue_list = function (next,connection) {
         }
     }catch (err){
         plugin.logerror("A message was temporarily denied because we were unable to connect to Postgres. Please fix the error, or any list email will be indefinitely denied: \n" + err.message)
-        next();
+        next(constants.DENYSOFT);
     }
 }
 
@@ -140,16 +141,20 @@ exports.queue_outbound = async function(connection, users){
     const plugin = this;
     const outbound = plugin.haraka_require('outbound');
     const from = connection.transaction.mail_from
-    var trans = Object.assign({}, connection.transaction);
     return await new Promise((rslv) => {
-        trans.message_stream.get_data((contents) => {
-            contents = contents.toString().replace(/\r/g, '');
-            //got contents
-            let sent = users.map((address) =>{
-                //for each recipient send email
-                const to = address.toString();
-                plugin.logdebug("sending email to: " + to)
-                return new Promise((resolve) => {
+        let sent = users.map((address) => {
+            let to = address.adr.toString()
+            let list = address.list
+            var trans = _.cloneDeep(connection.transaction);
+            trans.remove_header('List-Unsubscribe');
+            trans.add_header('List-Unsubscribe', list.verp("unsub"));
+            trans.remove_header('List-ID');
+            trans.add_header('List-ID', list.address.replace('@', '.'));
+            trans.set_banner("Email " + list.verp("unsub") + "to Unsubscribe", '<div><a href = mailto:"'+ list.verp("unsub") +'">Click here to unsubscribe</a></div>')
+            plugin.logdebug("sending email to: " + to)
+            return new Promise((resolve) => {
+                trans.message_stream.get_data((contents) => {
+                    contents = contents.toString().replace(/\r/g, '');
                     outbound.send_email(from, to, contents, (code, msg) => {
                         switch(code){
                             case DENY: plugin.logerror("Sending mail failed: " + msg);
@@ -165,11 +170,11 @@ exports.queue_outbound = async function(connection, users){
                     });
                 })
             })
-            
+        })
+        Promise.all(sent).then((didsent) => {
             if(sent.every((ret) => ret)){
                 rslv(true)
             }else{
-
                 rslv(false)
             }
         })
