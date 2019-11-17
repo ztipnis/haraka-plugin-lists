@@ -6,7 +6,7 @@ const _ = require('lodash');
 exports.register = function () {
     const plugin = this;
     plugin.load_lists_ini();
-    if(plugin.cfg.main.enabled === true){
+    if (plugin.cfg.main.enabled === true){
         plugin.loginfo("Plugin Lists Enabled",null)
         plugin.register_hook('init_master','init_pool');
         plugin.register_hook('connect_init', 'init_client');
@@ -30,7 +30,7 @@ exports.load_lists_ini = function () {
     });
 }
 
-exports.init_pool = function(next, server){
+exports.init_pool = function (next, server){
     const plugin = this;
     const { Pool } = require('pg');
     plugin.db_pool_postgres = new Pool();
@@ -40,16 +40,16 @@ exports.init_pool = function(next, server){
     next()
 }
 
-exports.init_client = function(next, connection){
+exports.init_client = function (next, connection){
     const plugin = this;
-    if(!(typeof plugin.db_pool_postgres !== 'undefined' && plugin.db_pool_postgres)){
+    if (!(typeof plugin.db_pool_postgres !== 'undefined' && plugin.db_pool_postgres)){
         const { Pool } = require('pg');
         plugin.db_pool_postgres = new Pool();
         plugin.db_pool_postgres.on('error', (err, client) =>{
             plugin.logcrit('Idle client encountered error ' + err.message)
         })
     }
-    if(plugin.db_pool_postgres){
+    if (plugin.db_pool_postgres){
         plugin.db_pool_postgres.connect().then(client => {
             connection.notes.pgresClient = client;
             next();
@@ -59,29 +59,31 @@ exports.init_client = function(next, connection){
     }
 }
 
-exports.validate_list_addresses = function(next, connection, params){
+exports.validate_list_addresses = function (next, connection, params){
     const plugin = this;
     const util = require('util');
-    var recipient = params[0].user + "@" + params[0].host;
+    const recipient = params[0].user + "@" + params[0].host;
     connection.logdebug("Checking for list named " + util.inspect(recipient))
-    var lst = new List(recipient);
+    const lst = new List(recipient);
     lst.validate(connection.notes.pgresClient).then((valid) =>{
-        if(valid){
+        if (valid){
             connection.logdebug("List named: '" + recipient +"' exists!")
             connection.notes.islist = true;
             return next(constants.OK);
-        }else{
+        }
+        else {
             (new List(lst.unverp().email)).validate(connection.notes.pgresClient).then((unverpvalid) => {
-                if(unverpvalid){
+                if (unverpvalid){
                     plugin.run_command(lst.unverp(),connection)
                     return next(constants.DISCONNECT);
-                }else{
+                }
+                else {
                     connection.logdebug("List does not exist");
                     connection.notes.islist = false;
                     return next(constants.CONT);
                 }
             })
-            
+
         }
     }).catch((err) =>{
         plugin.logerror(err.message);
@@ -89,82 +91,91 @@ exports.validate_list_addresses = function(next, connection, params){
     })
 }
 
-exports.run_command = function(vobj, email, connection){
+exports.run_command = function (vobj, email, connection){
     const from = connection.transaction.mail_from;
-    switch(vobj.command){
+    const client = connection.notes.pgresClient;
+    const plugin = this;
+    switch (vobj.command){
         case "unsub":
             client.query('DELETE FROM "public"."listUsers" AS lU USING "public"."lists" AS l  WHERE lU.lid=l.id  AND l.address = $1  AND lU.email = $2;',[vobj.email, from])
+            break
         case "sub":
             plugin.logerror("Sorry subscribe not allowed")
+            break
     }
 }
 
-exports.hook_data = function(next, connection){
+exports.hook_data = function (next, connection){
     connection.transaction.parse_body = true;
     next();
 }
 
 
 exports.queue_list = function (next,connection) {
-    try{
-        const plugin = this;
-        var Address = require('address-rfc2821').Address;
-        if(connection.notes.islist){
+    const plugin = this;
+    try {
+        const Address = require('address-rfc2821').Address;
+        if (connection.notes.islist){
             const recipients = connection.transaction.rcpt_to;
             connection.transaction.rcpt_to = [];
-            var rcpt_ret = recipients.map(async (recipient) => {
-                let lst = new List(recipient.user + "@" + recipient.host)
-                try{
-                    var islist = await lst.validate(connection.notes.pgresClient)
-                    if(islist){
-                        var listUsers = await lst.recipients(connection.notes.pgresClient)
+            const rcpt_ret = recipients.map(async (recipient) => {
+                const lst = new List(recipient.user + "@" + recipient.host)
+                try {
+                    const islist = await lst.validate(connection.notes.pgresClient)
+                    if (islist){
+                        const listUsers = await lst.recipients(connection.notes.pgresClient)
                         return listUsers.map((listUserEmail) => ({adr: (new Address(listUserEmail)), list: lst}))
-                    }else{
+                    }
+                    else {
                         connection.transaction.rcpt_to.push(recipient)
                         return [];
                     }
-                }catch(err){
+                }
+                catch (err){
                     plugin.logerror("Database Connection Failed " + err.message)
                     throw next(constants.DENYSOFT);
                 }
             }, this)
             Promise.all(rcpt_ret).then(async (rcpt_to) => {
-                let list_queue = rcpt_to.flat();
-                if(await plugin.queue_outbound(connection, list_queue)){
+                const list_queue = rcpt_to.flat();
+                if (await plugin.queue_outbound(connection, list_queue)){
                     plugin.logdebug("Remaining Addresses: " + JSON.stringify(connection.transaction.rcpt_to));
                     next(constants.CONT);
-                }else{
+                }
+                else {
                     next(constants.DENYSOFT);
                 }
             })
-        }else{
+        }
+        else {
             next();
         }
-    }catch (err){
+    }
+    catch (err){
         plugin.logerror("A message was temporarily denied because we were unable to connect to Postgres. Please fix the error, or any list email will be indefinitely denied: \n" + err.message)
         next(constants.DENYSOFT);
     }
 }
 
 
-exports.close_client = function(next, connection){
-    if(typeof connection.notes.pgresClient !== 'undefined' && connection.notes.pgresClient){
+exports.close_client = function (next, connection){
+    if (typeof connection.notes.pgresClient !== 'undefined' && connection.notes.pgresClient){
         connection.notes.pgresClient.release()
     }
     next();
 }
 
 
-exports.queue_outbound = async function(connection, users){
+exports.queue_outbound = async function (connection, users){
     const plugin = this;
     const outbound = plugin.haraka_require('outbound');
     const from = connection.transaction.mail_from
     return await new Promise((rslv) => {
-        let sent = users.map((address) => {
-            let to = address.adr.toString()
-            let list = address.list
-            var trans = _.cloneDeep(connection.transaction);
-            let unsub = list.verp("unsub");
+        const sent = users.map((address) => {
+            const to = address.adr.toString()
+            const list = address.list
+            const trans = _.cloneDeep(connection.transaction);
+            const unsub = list.verp("unsub");
             trans.remove_header('List-Unsubscribe');
             trans.add_header('List-Unsubscribe', unsub);
             trans.remove_header('List-ID');
@@ -178,25 +189,26 @@ exports.queue_outbound = async function(connection, users){
 
                     plugin.logdebug(JSON.stringify(list.unverp()))
                     outbound.send_email(from, to, contents, (code, msg) => {
-                        switch(code){
+                        switch (code){
                             case DENY: plugin.logerror("Sending mail failed: " + msg);
-                                       resolve(false);
-                                       break;
+                                resolve(false);
+                                break;
                             case OK:   plugin.loginfo("List email sent")
-                                       resolve(true);
-                                       break;
+                                resolve(true);
+                                break;
                             default:   plugin.logerror("Unrecognized return code from sending email: " + msg);
-                                       resolve(false);
-                                       break;
+                                resolve(false);
+                                break;
                         }
                     });
                 })
             })
         })
         Promise.all(sent).then((didsent) => {
-            if(sent.every((ret) => ret)){
+            if (sent.every((ret) => ret)){
                 rslv(true)
-            }else{
+            }
+            else {
                 rslv(false)
             }
         })
