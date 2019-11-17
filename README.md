@@ -1,6 +1,7 @@
 [![Build Status][ci-img]][ci-url]
 [![Code Climate][clim-img]][clim-url]
 [![Greenkeeper badge][gk-img]][gk-url]
+
 [![NPM][npm-img]][npm-url]
 <!-- requires URL update [![Windows Build Status][ci-win-img]][ci-win-url] -->
 <!-- doesn't work in haraka plugins... yet. [![Code Coverage][cov-img]][cov-url]-->
