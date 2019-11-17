@@ -25,10 +25,10 @@
   },
   "homepage": "https://github.com/haraka/haraka-plugin-lists#readme",
   "devDependencies": {
+    "babel-eslint": "^10.0.3",
     "eslint": ">=3",
     "eslint-plugin-haraka": "*",
     "haraka-test-fixtures": "*",
-    "babel-eslint" : "*",
     "mocha": "*"
   },
   "dependencies": {
