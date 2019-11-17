@@ -84,8 +84,8 @@ $EDITOR config/lists.ini
 [ci-win-url]: https://ci.appveyor.com/project/haraka/haraka-CHANGETHIS
 [cov-img]: https://codecov.io/github/haraka/haraka-plugin-lists/coverage.svg
 [cov-url]: https://codecov.io/github/haraka/haraka-plugin-lists
-[clim-img]: https://codeclimate.com/github/haraka/haraka-plugin-lists/badges/gpa.svg
-[clim-url]: https://codeclimate.com/github/haraka/haraka-plugin-lists
+[clim-img]: https://codeclimate.com/github/ztipnis/haraka-plugin-lists/badges/gpa.svg
+[clim-url]: https://codeclimate.com/github/ztipnis/haraka-plugin-lists
 [gk-img]: https://badges.greenkeeper.io/haraka/haraka-plugin-lists.svg
 [gk-url]: https://greenkeeper.io/
 [npm-img]: https://nodei.co/npm/haraka-plugin-lists.png
