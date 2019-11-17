@@ -78,8 +78,8 @@ $EDITOR config/lists.ini
 
 
 <!-- leave these buried at the bottom of the document -->
-[ci-img]: https://travis-ci.org/haraka/haraka-plugin-lists.svg
-[ci-url]: https://travis-ci.org/haraka/haraka-plugin-lists
+[ci-img]: https://travis-ci.com/ztipnis/haraka-plugin-lists.svg
+[ci-url]: https://travis-ci.com/ztipnis/haraka-plugin-lists
 [ci-win-img]: https://ci.appveyor.com/api/projects/status/CHANGETHIS?svg=true
 [ci-win-url]: https://ci.appveyor.com/project/haraka/haraka-CHANGETHIS
 [cov-img]: https://codecov.io/github/haraka/haraka-plugin-lists/coverage.svg
