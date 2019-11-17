@@ -28,6 +28,7 @@
     "eslint": ">=3",
     "eslint-plugin-haraka": "*",
     "haraka-test-fixtures": "*",
+    "babel-eslint" : "*",
     "mocha": "*"
   },
   "dependencies": {
